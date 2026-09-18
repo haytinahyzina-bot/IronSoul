@@ -7,6 +7,9 @@
     Skill  : Q=Skill1  E=Skill2  R=SkillU  G=SkillAW
     Cooldown dibaca dari GUI (Cool.Visible == false berarti siap)
 
+    CATATAN: Bring Mob default MATI. Mob yang ditarik paksa bikin
+    hit tidak terdaftar server, jadi player yang menghampiri mob.
+
     CARA UPLOAD KE GITHUB:
     1. Buat repo public baru (misal: ironsoul-script)
     2. Add file > Create new file > nama: IronSoul.lua
@@ -24,7 +27,7 @@ getgenv().IronSoulStop = false
 -- ===== config + default =====
 local DEFAULTS = {
     Enabled = true,
-    Attack = true, Skill = true, Bring = true,
+    Attack = true, Skill = true, Bring = false,
     Hover = true, LieDown = true,
     HoverHeight = 11, HoverMin = 10, HoverMax = 30,
     HoverRange = 500, AttackRange = 30, SkillRange = 45, BringRange = 60,
@@ -37,6 +40,8 @@ for k, v in pairs(DEFAULTS) do
     if getgenv().Cfg[k] == nil then getgenv().Cfg[k] = v end
 end
 local Cfg = getgenv().Cfg
+-- paksa Bring mati (mob yang ditarik bikin damage tidak masuk)
+Cfg.Bring = false
 
 -- ===== services =====
 local Players = game:GetService("Players")
@@ -105,7 +110,7 @@ local function standUp()
     end
 end
 
--- ===== LOOP 1: hover di atas kepala + tiduran 90° + bring =====
+-- ===== LOOP 1: hover di atas kepala + tiduran 90° (mob TIDAK ditarik) =====
 task.spawn(function()
     local myId = runId
     while true do
@@ -134,6 +139,7 @@ task.spawn(function()
                 my.CFrame = CFrame.new(topPos, Vector3.new(tgt.hrp.Position.X, topPos.Y, tgt.hrp.Position.Z))
             end
         end)
+        -- Bring sengaja NONAKTIF default: mob dibiarkan di posisi server
         if Cfg.Bring then
             local underPos = my.CFrame.Position - Vector3.new(0, hh - 1, 0)
             for i, e in ipairs(list) do
@@ -207,7 +213,7 @@ local StatusLabel = MainTab:AddLabel("Status: menunggu musuh...")
 MainTab:AddToggle({Name = "Enable Semua (Master)", Default = Cfg.Enabled, Callback = function(v) Cfg.Enabled = v end})
 MainTab:AddToggle({Name = "Auto Attack (hanya saat musuh ada)", Default = Cfg.Attack, Callback = function(v) Cfg.Attack = v end})
 MainTab:AddToggle({Name = "Auto Skill QERG (cek cooldown)", Default = Cfg.Skill, Callback = function(v) Cfg.Skill = v end})
-MainTab:AddToggle({Name = "Bring Mob (kumpulkan ke bawah)", Default = Cfg.Bring, Callback = function(v) Cfg.Bring = v end})
+MainTab:AddToggle({Name = "Bring Mob (MATI default: bikin damage miss)", Default = Cfg.Bring, Callback = function(v) Cfg.Bring = v end})
 MainTab:AddSlider({Name = "Attack Interval (detik)", Min = 0.2, Max = 1.5, Default = Cfg.AttackInterval, Color = Color3.fromRGB(255, 255, 255), Increment = 0.05, ValueName = "s", Callback = function(v) Cfg.AttackInterval = v end})
 
 -- --- Tab Skill ---
