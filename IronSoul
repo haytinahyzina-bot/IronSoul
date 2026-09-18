@@ -47,7 +47,7 @@ local SKILLS = {
     {key = Enum.KeyCode.Q, btn = "Skill1",  ult = false, use = function() return Cfg.UseQ end},
     {key = Enum.KeyCode.E, btn = "Skill2",  ult = false, use = function() return Cfg.UseE end},
     {key = Enum.KeyCode.R, btn = "SkillU",  ult = true,  use = function() return Cfg.UseR end},
-    {key = Enum.KeyCode.G, btn = "SkillAW", ult = true,  use = function() return Cfg.UseG end},
+    {key = Enum.KeyCode.G, btn = "SkillAW", ult = true, use = function() return Cfg.UseG end},
 }
 
 -- ===== helpers =====
@@ -192,7 +192,7 @@ if getgenv().IronOrion then
     pcall(function() getgenv().IronOrion:Destroy() end)
     getgenv().IronOrion = nil
 end
-local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/jensonhirst/Orion/main/source"))()
 local Window = OrionLib:MakeWindow({
     Name = "Iron Soul Dungeon Helper",
     HidePremium = false,
