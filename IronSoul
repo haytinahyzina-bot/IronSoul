@@ -1,0 +1,261 @@
+--[[
+    Iron Soul: Dungeon - Auto Dungeon Helper
+    Hover Lie-Down 90° + Auto Attack + Auto Skill (Q E R G)
+    UI: OrionLib
+
+    Tested : PlaceId 112316840155266 (Kastil Oathlost)
+    Skill  : Q=Skill1  E=Skill2  R=SkillU  G=SkillAW
+    Cooldown dibaca dari GUI (Cool.Visible == false berarti siap)
+
+    CARA UPLOAD KE GITHUB:
+    1. Buat repo public baru (misal: ironsoul-script)
+    2. Add file > Create new file > nama: IronSoul.lua
+    3. Paste SELURUH isi file ini > Commit changes
+    4. Buka file itu di GitHub > tekan tombol Raw > copy URL
+    5. Loader kamu jadi:
+       loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/IronSoul.lua"))()
+]]
+
+-- ===== anti double-run: execute ulang otomatis mematikan loop lama =====
+getgenv().IronRunId = (getgenv().IronRunId or 0) + 1
+local runId = getgenv().IronRunId
+getgenv().IronSoulStop = false
+
+-- ===== config + default =====
+local DEFAULTS = {
+    Enabled = true,
+    Attack = true, Skill = true, Bring = true,
+    Hover = true, LieDown = true,
+    HoverHeight = 11, HoverMin = 10, HoverMax = 30,
+    HoverRange = 500, AttackRange = 30, SkillRange = 45, BringRange = 60,
+    AttackInterval = 0.4, SkillDelay = 0.5,
+    MinMobsForUlt = 2, BossHP = 100000,
+    UseQ = true, UseE = true, UseR = true, UseG = true,
+}
+getgenv().Cfg = getgenv().Cfg or {}
+for k, v in pairs(DEFAULTS) do
+    if getgenv().Cfg[k] == nil then getgenv().Cfg[k] = v end
+end
+local Cfg = getgenv().Cfg
+
+-- ===== services =====
+local Players = game:GetService("Players")
+local VIM = game:GetService("VirtualInputManager")
+local LP = Players.LocalPlayer
+
+local SKILLS = {
+    {key = Enum.KeyCode.Q, btn = "Skill1",  ult = false, use = function() return Cfg.UseQ end},
+    {key = Enum.KeyCode.E, btn = "Skill2",  ult = false, use = function() return Cfg.UseE end},
+    {key = Enum.KeyCode.R, btn = "SkillU",  ult = true,  use = function() return Cfg.UseR end},
+    {key = Enum.KeyCode.G, btn = "SkillAW", ult = true,  use = function() return Cfg.UseG end},
+}
+
+-- ===== helpers =====
+local function alive()
+    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    return h and h.Health > 0
+end
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function getHum()
+    return LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+end
+local function getSkillsFolder()
+    local a = LP.PlayerGui:FindFirstChild("ScreenInput")
+    local b = a and a:FindFirstChild("PCInput")
+    return b and b:FindFirstChild("Skills")
+end
+local function isReady(btnName)
+    local f = getSkillsFolder()
+    if not f then return false end
+    local b = f:FindFirstChild(btnName)
+    if not b or not b:IsA("GuiButton") or not b.Visible then return false end
+    local cool = b:FindFirstChild("Cool")
+    if not cool then return true end
+    return cool.Visible == false
+end
+local function getEnemies(maxDist)
+    local my = getHRP()
+    local t = {}
+    if not my then return t end
+    for _, m in ipairs(workspace.EnemyNpc:GetChildren()) do
+        local h = m:FindFirstChildOfClass("Humanoid")
+        local ehrp = m:FindFirstChild("HumanoidRootPart")
+        if h and ehrp and h.Health > 0 then
+            local d = (ehrp.Position - my.Position).Magnitude
+            if d <= maxDist then
+                table.insert(t, {m = m, h = h, hrp = ehrp, dist = d})
+            end
+        end
+    end
+    table.sort(t, function(a, b) return a.dist < b.dist end)
+    return t
+end
+local function press(key)
+    VIM:SendKeyEvent(true, key, false, game)
+    task.wait(0.08)
+    VIM:SendKeyEvent(false, key, false, game)
+end
+local function standUp()
+    local h = getHum()
+    if h and h.PlatformStand then
+        pcall(function() h.PlatformStand = false end)
+    end
+end
+
+-- ===== LOOP 1: hover di atas kepala + tiduran 90° + bring =====
+task.spawn(function()
+    local myId = runId
+    while true do
+        task.wait(0.1)
+        if getgenv().IronRunId ~= myId or getgenv().IronSoulStop then standUp() break end
+        if not Cfg.Enabled or not Cfg.Hover or not alive() then standUp() continue end
+        local my = getHRP()
+        if not my then continue end
+        local list = getEnemies(Cfg.HoverRange)
+        if #list == 0 then standUp() continue end
+        local tgt = list[1]
+        local hh = math.clamp(Cfg.HoverHeight or 11, Cfg.HoverMin or 10, Cfg.HoverMax or 30)
+        Cfg.HoverHeight = hh
+        local topPos = tgt.hrp.Position + Vector3.new(0, hh, 0)
+        pcall(function()
+            local hum = getHum()
+            -- PlatformStand mematikan auto-tegak Humanoid supaya posisi tiduran tidak diluruskan lagi
+            if Cfg.LieDown and hum and not hum.PlatformStand then hum.PlatformStand = true end
+            my.AssemblyLinearVelocity = Vector3.zero
+            my.AssemblyAngularVelocity = Vector3.zero
+            if Cfg.LieDown then
+                -- badan rebah 90°, wajah menghadap monster di bawah
+                my.CFrame = CFrame.new(topPos, tgt.hrp.Position)
+            else
+                -- hover tegak (stabil, tanpa rebahan)
+                my.CFrame = CFrame.new(topPos, Vector3.new(tgt.hrp.Position.X, topPos.Y, tgt.hrp.Position.Z))
+            end
+        end)
+        if Cfg.Bring then
+            local underPos = my.CFrame.Position - Vector3.new(0, hh - 1, 0)
+            for i, e in ipairs(list) do
+                if i == 1 then continue end
+                if e.dist <= Cfg.BringRange + 20 then
+                    pcall(function()
+                        e.hrp.AssemblyLinearVelocity = Vector3.zero
+                        e.hrp.CFrame = CFrame.new(underPos + Vector3.new(math.random(-3, 3), 0, math.random(-3, 3)))
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- ===== LOOP 2: auto attack + auto skill (hanya saat musuh ada) =====
+task.spawn(function()
+    local myId = runId
+    local lastAttack = 0
+    while true do
+        task.wait(0.2)
+        if getgenv().IronRunId ~= myId or getgenv().IronSoulStop then break end
+        if not Cfg.Enabled or not alive() then continue end
+        local my = getHRP()
+        if not my then continue end
+        local nearAtk = getEnemies(Cfg.AttackRange)
+        if #nearAtk == 0 then continue end -- tidak ada musuh: diam total, tidak spam
+        if Cfg.Attack and tick() - lastAttack >= Cfg.AttackInterval then
+            lastAttack = tick()
+            local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+            if tool then pcall(function() tool:Activate() end) end
+        end
+        if Cfg.Skill then
+            local count = #nearAtk
+            local isBoss = false
+            for _, e in ipairs(nearAtk) do
+                if e.h.MaxHealth >= Cfg.BossHP then isBoss = true break end
+            end
+            for _, s in ipairs(SKILLS) do
+                if getgenv().IronRunId ~= myId then break end
+                if not s.use() then continue end
+                -- ult R/G hemat: keluar kalau musuh >= MinMobsForUlt ATAU boss
+                if s.ult and count < Cfg.MinMobsForUlt and not isBoss then continue end
+                if isReady(s.btn) then
+                    if #getEnemies(Cfg.SkillRange) == 0 then break end
+                    press(s.key)
+                    task.wait(Cfg.SkillDelay)
+                end
+            end
+        end
+    end
+end)
+
+-- ===== UI: OrionLib =====
+if getgenv().IronOrion then
+    pcall(function() getgenv().IronOrion:Destroy() end)
+    getgenv().IronOrion = nil
+end
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
+local Window = OrionLib:MakeWindow({
+    Name = "Iron Soul Dungeon Helper",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "IronSoulDungeon",
+})
+getgenv().IronOrion = OrionLib
+
+-- --- Tab Main ---
+local MainTab = Window:MakeTab({Name = "Main", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+local StatusLabel = MainTab:AddLabel("Status: menunggu musuh...")
+MainTab:AddToggle({Name = "Enable Semua (Master)", Default = Cfg.Enabled, Callback = function(v) Cfg.Enabled = v end})
+MainTab:AddToggle({Name = "Auto Attack (hanya saat musuh ada)", Default = Cfg.Attack, Callback = function(v) Cfg.Attack = v end})
+MainTab:AddToggle({Name = "Auto Skill QERG (cek cooldown)", Default = Cfg.Skill, Callback = function(v) Cfg.Skill = v end})
+MainTab:AddToggle({Name = "Bring Mob (kumpulkan ke bawah)", Default = Cfg.Bring, Callback = function(v) Cfg.Bring = v end})
+MainTab:AddSlider({Name = "Attack Interval (detik)", Min = 0.2, Max = 1.5, Default = Cfg.AttackInterval, Color = Color3.fromRGB(255, 255, 255), Increment = 0.05, ValueName = "s", Callback = function(v) Cfg.AttackInterval = v end})
+
+-- --- Tab Skill ---
+local SkillTab = Window:MakeTab({Name = "Skill QERG", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+SkillTab:AddToggle({Name = "Skill Q (Skill1)", Default = Cfg.UseQ, Callback = function(v) Cfg.UseQ = v end})
+SkillTab:AddToggle({Name = "Skill E (Skill2)", Default = Cfg.UseE, Callback = function(v) Cfg.UseE = v end})
+SkillTab:AddToggle({Name = "Skill R / Ult (SkillU)", Default = Cfg.UseR, Callback = function(v) Cfg.UseR = v end})
+SkillTab:AddToggle({Name = "Skill G / Ult (SkillAW)", Default = Cfg.UseG, Callback = function(v) Cfg.UseG = v end})
+SkillTab:AddSlider({Name = "Jarak skill cari musuh", Min = 20, Max = 80, Default = Cfg.SkillRange, Color = Color3.fromRGB(255, 255, 255), Increment = 1, ValueName = "studs", Callback = function(v) Cfg.SkillRange = v end})
+SkillTab:AddSlider({Name = "Jeda antar skill", Min = 0.2, Max = 1.5, Default = Cfg.SkillDelay, Color = Color3.fromRGB(255, 255, 255), Increment = 0.05, ValueName = "s", Callback = function(v) Cfg.SkillDelay = v end})
+SkillTab:AddSlider({Name = "Min musuh untuk Ult R/G", Min = 1, Max = 5, Default = Cfg.MinMobsForUlt, Color = Color3.fromRGB(255, 255, 255), Increment = 1, ValueName = "mob", Callback = function(v) Cfg.MinMobsForUlt = v end})
+SkillTab:AddSlider({Name = "HP dianggap Boss", Min = 50000, Max = 300000, Default = Cfg.BossHP, Color = Color3.fromRGB(255, 255, 255), Increment = 10000, ValueName = "hp", Callback = function(v) Cfg.BossHP = v end})
+
+-- --- Tab Hover ---
+local HoverTab = Window:MakeTab({Name = "Hover", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+HoverTab:AddToggle({Name = "Hover di atas kepala", Default = Cfg.Hover, Callback = function(v) Cfg.Hover = v end})
+HoverTab:AddToggle({Name = "Tiduran 90° saat hover", Default = Cfg.LieDown, Callback = function(v) Cfg.LieDown = v if not v then standUp() end end})
+HoverTab:AddSlider({Name = "Tinggi hover (10-30)", Min = 10, Max = 30, Default = Cfg.HoverHeight, Color = Color3.fromRGB(255, 255, 255), Increment = 1, ValueName = "studs", Callback = function(v) Cfg.HoverHeight = v end})
+HoverTab:AddSlider({Name = "Jarak cari musuh (hover)", Min = 100, Max = 1000, Default = Cfg.HoverRange, Color = Color3.fromRGB(255, 255, 255), Increment = 10, ValueName = "studs", Callback = function(v) Cfg.HoverRange = v end})
+HoverTab:AddSlider({Name = "Jarak serang", Min = 15, Max = 60, Default = Cfg.AttackRange, Color = Color3.fromRGB(255, 255, 255), Increment = 1, ValueName = "studs", Callback = function(v) Cfg.AttackRange = v end})
+HoverTab:AddSlider({Name = "Jarak bring", Min = 20, Max = 100, Default = Cfg.BringRange, Color = Color3.fromRGB(255, 255, 255), Increment = 1, ValueName = "studs", Callback = function(v) Cfg.BringRange = v end})
+
+-- --- Tab Settings ---
+local SetTab = Window:MakeTab({Name = "Settings", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+SetTab:AddButton({Name = "Berdiri normal (matikan hover+rebahan)", Callback = function()
+    Cfg.Hover = false
+    Cfg.LieDown = false
+    standUp()
+end})
+SetTab:AddButton({Name = "STOP SEMUA", Callback = function()
+    Cfg.Enabled = false
+    getgenv().IronSoulStop = true
+    standUp()
+end})
+
+-- ===== status loop =====
+task.spawn(function()
+    local myId = runId
+    while true do
+        task.wait(1)
+        if getgenv().IronRunId ~= myId then break end
+        local n = #workspace.EnemyNpc:GetChildren()
+        local near = #getEnemies(Cfg.SkillRange)
+        pcall(function()
+            StatusLabel:Set(string.format("Status: mob total %d | dekat %d | tinggi %d | %s", n, near, Cfg.HoverHeight, Cfg.Enabled and "JALAN" or "PAUSE"))
+        end)
+    end
+end)
+
+OrionLib:Init()
+OrionLib:MakeNotification({Name = "Iron Soul Helper", Content = "Loaded! Hover + Attack + Skill QERG aktif.", Image = "rbxassetid://4483345998", Time = 5})
